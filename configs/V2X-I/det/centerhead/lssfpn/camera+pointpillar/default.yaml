@@ -1,32 +1,32 @@
-augment3d:
-  scale: [0.95, 1.05]
-  rotate: [-0.3925, 0.3925]
-  translate: 0
+augment3d: #3D 数据增强
+  scale: [0.95, 1.05] #物体大小会随机缩放 95%~105%
+  rotate: [-0.3925, 0.3925] #体会绕 z 轴随机旋转 [-0.3925, 0.3925] ≈ ±22.5°
+  translate: 0 # 0 表示不进行平移增强
 
 model:
   encoders:
     lidar:
-      voxelize_reduce: false
+      voxelize_reduce: false #不减少体素数量  不把同一个 pillar 内的点做“取平均”简化，保留全部点
       voxelize:
-        max_num_points: 10
-        point_cloud_range: ${point_cloud_range}
-        voxel_size:  [0.8, 0.8, 8]
-        max_voxels: [120000, 160000]
+        max_num_points: 10 #每个体素最多保留的点数
+        point_cloud_range: ${point_cloud_range} #点云裁剪范围 定义 的BEV 空间范围
+        voxel_size:  [0.8, 0.8, 8] #体素尺寸（x, y, z）
+        max_voxels: [120000, 160000] #训练/测试时最大体素数 
       backbone:
-        type: PointPillarsEncoder
-        pts_voxel_encoder: 
-          type: PillarFeatureNet
-          in_channels: 4
+        type: PointPillarsEncoder  #点云先 voxel → pillar → 2D BEV 特征图
+        pts_voxel_encoder:  # 对每个体素中的点做特征编码
+          type: PillarFeatureNet #把每个 pillar 里点的特征 MLP → maxpool → 1 个 pillar 向量
+          in_channels: 4 #每个点有 x, y, z, intensity 四个特征
           voxel_size:  [0.8, 0.8, 8]
           point_cloud_range: ${point_cloud_range}
         pts_middle_encoder: 
-          type: PointPillarsScatter
+          type: PointPillarsScatter #把 pillar 向量 重新排列成 128×128 的 2D 特征图
           output_shape: [128, 128]
     camera:
       vtransform:
         type: LSSV2XTransform
         image_size: ${image_size}
-        xbound: [-51.2, 51.2, 0.8]
+        xbound: [-51.2, 51.2, 0.8] #128个
         ybound: [-51.2, 51.2, 0.8]
         zbound: [-10.0, 10.0, 20.0]
         dbound: [1.0, 60.0, 1.0]
@@ -48,4 +48,4 @@ model:
           - [1.0, 1.0]
           - [2.5, 4.0]
 
-lr_config: null
+lr_config: null #保持恒定或外部脚本控制

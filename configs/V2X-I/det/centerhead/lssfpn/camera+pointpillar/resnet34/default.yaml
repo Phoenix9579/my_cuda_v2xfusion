@@ -1,19 +1,19 @@
 model:
-  encoders:
-    camera:
-      backbone:
+  encoders: #编码器
+    camera: #相机编码器，提取图像特征
+      backbone: #ResNet34 34深度为主干网络
         type: ResNet
         depth: 34
-        out_indices: [1, 2, 3]
-        init_cfg:
-          type: Pretrained
+        out_indices: [1, 2, 3] #输出第1、2、3层特征图，用多尺度特征提取
+        init_cfg: #加载 ImageNet 预训练的 ResNet-34 模型（URL链接）为预训练权重
+          type: Pretrained 
           checkpoint: https://download.pytorch.org/models/resnet34-333f7ec4.pth
-      neck:
+      neck: #特征金字塔网络，多尺度特征融合，FPN
         type: GeneralizedLSSFPN
-        in_channels: [128, 256, 512]
-        out_channels: 256
+        in_channels: [128, 256, 512] #输入特征图的通道数（对应 ResNet 的输出）
+        out_channels: 256 #输出特征图的通道数统一为 256
         start_level: 0
-        num_outs: 3
+        num_outs: 3 #输出3个尺度的特征图
         norm_cfg:
           type: BN2d
           requires_grad: true
@@ -23,16 +23,16 @@ model:
         upsample_cfg:
           mode: bilinear
           align_corners: false      
-      vtransform:
-        in_channels: 256
-        out_channels: 80
-        feature_size: ${[image_size[0] // 16, image_size[1] // 16]}
-        xbound: [0, 102.4, 0.8]
-        ybound: [-51.2, 51.2, 0.8]
-        zbound: [-5, 3, 8]
-        dbound: [-2.0, 0.0, 90]
-        downsample: 1
-  decoder:
+      vtransform: #视角转换  将相机特征从图像空间转换到 BEV（鸟瞰图）空间
+        in_channels: 256 #输入特征通道数
+        out_channels: 80 #输出BEV特征通道数
+        feature_size: ${[image_size[0] // 16, image_size[1] // 16]} #BEV 特征图的尺寸
+        xbound: [0, 102.4, 0.8] #x轴范围 [0, 102.4]，分辨率 0.8 米
+        ybound: [-51.2, 51.2, 0.8] #y轴范围 [-51.2, 51.2]，分辨率 0.8 米
+        zbound: [-5, 3, 8] #z轴范围 [-5, 3]，分8层
+        dbound: [-2.0, 0.0, 90] #深度范围 [-2.0, 0.0]，分90层（用于深度估计
+        downsample: 1 #不进行下采样
+  decoder: #解码器
     backbone:
       type: GeneralizedResNet
       in_channels: 80
@@ -40,14 +40,14 @@ model:
         - [2, 128, 2]
         - [2, 256, 2]
         - [2, 512, 1]
-    neck:
+    neck: #进一步上采样和融合特征
       type: LSSFPN
       in_indices: [-1, 0]
       in_channels: [512, 128]
       out_channels: 256
-      scale_factor: 2
+      scale_factor: 2 #特征图尺寸方法2倍
 
-  fuser:
+  fuser:  #融合相机和激光雷达的 BEV 特征
     type: ConvFuser
     in_channels: [80, 64]
     out_channels: 80
@@ -56,26 +56,26 @@ optimizer:
   paramwise_cfg:
     custom_keys:
       absolute_pos_embed:
-        decay_mult: 0
+        decay_mult: 0 #不进行权重衰减（decay_mult=0）
       relative_position_bias_table:
         decay_mult: 0
       encoders.camera.backbone:
-        lr_mult: 0.1
+        lr_mult: 0.1 #相机主干网络的学习率缩小为全局学习率的 0.1 倍（因为已经加载预训练权重）
 
 
 lr_config:
-  policy: cyclic
-  target_ratio: 5.0
-  cyclic_times: 1
-  step_ratio_up: 0.4
+  policy: cyclic #使用循环学习率策略（学习率在训练过程中周期性变化）
+  target_ratio: 5.0 #学习率的上下限比例
+  cyclic_times: 1 #一个周期覆盖整个训练过程
+  step_ratio_up: 0.4 #40% 的训练步数用于学习率上升
 
-momentum_config:
+momentum_config: #动量策略，也采用循环策略，与学习率策略相同步，先增加后减少
   policy: cyclic
   cyclic_times: 1
   step_ratio_up: 0.4
 
 data:
-  samples_per_gpu: 6
-  workers_per_gpu: 6
+  samples_per_gpu: 6 #每张 GPU 的批量大小（batch size）
+  workers_per_gpu: 6 #每个 GPU 使用 6 个线程加载数据
 
 

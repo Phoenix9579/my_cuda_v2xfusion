@@ -1,27 +1,27 @@
 seed: 0
-deterministic: false
+deterministic: false #是否启用确定性计算（禁用随机性），当为 true 时，某些非确定性操作（如卷积计算顺序）会被固定，开启后可能降低训练速度
 
 checkpoint_config:
-  interval: 1
-  max_keep_ckpts: 10
+  interval: 1 #每训练1个epoch保存一次模型
+  max_keep_ckpts: 10 #最多保留10个模型文件
 
 log_config:
-  interval: 50
+  interval: 50 #每50个迭代（iteration）打印一次日志
   hooks:
     -
       type: TextLoggerHook
     -
       type: TensorboardLoggerHook
 
-load_from: null
-resume_from: null
+load_from: null #不加载预训练模型（null 表示不启用）
+resume_from: null #不从断点恢复训练,如果有值，格式为 "work_dirs/epoch_10.pth"
 
-cudnn_benchmark: false
-fp16:
+cudnn_benchmark: false #是否启用 CUDNN 的自动优化 true：自动寻找最优卷积算法（可能加快训练速度）
+fp16: #半浮点精度  使用16位精度代替32位精度计算，节省内存，加快训练速度
   loss_scale: 
-    growth_interval: 2000
+    growth_interval: 2000 #动态调整 loss scale 的间隔步数，防止梯度溢出
 
-max_epochs: 100
+max_epochs: 100 #总共训练100个epoch
 runner:
-  type: CustomEpochBasedRunner
+  type: CustomEpochBasedRunner #使用自定义的基于epoch的训练器
   max_epochs: ${max_epochs}

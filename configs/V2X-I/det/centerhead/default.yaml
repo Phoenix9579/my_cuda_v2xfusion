@@ -1,30 +1,30 @@
 model:
   heads:
     object:
-      type: CenterHead
+      type: CenterHead #定义了使用的头部类型为 CenterHead，这是一种常用于3D目标检测任务的头部设计
       in_channels: null
       train_cfg:
         point_cloud_range: ${point_cloud_range}
-        grid_size: [512, 512, 1]
+        grid_size: [512, 512, 1] #定义了在鸟瞰图(BEV)中的网格大小，[x, y, z]
         voxel_size: ${voxel_size}
-        out_size_factor: 4
-        dense_reg: 1
-        gaussian_overlap: 0.1
-        max_objs: 500
-        min_radius: 2
-        code_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2]
+        out_size_factor: 4 #输出特征图相对于原始的缩小比例
+        dense_reg: 1 #对目标中心点做 稠密回归（每个像素都预测）
+        gaussian_overlap: 0.1 #生成高斯标签时，若两个高斯重叠 >0.1 则合并
+        max_objs: 500 #一张图最多 500 个目标中心点
+        min_radius: 2 #高斯标签最小半径（像素）
+        code_weights: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.2, 0.2] #9 维预测向量（x,y,z,w,h,l,yaw,vx,vy）的 损失权重；最后两项（速度）权重 0.2。
       test_cfg:
-        post_center_limit_range: [0.0, -61.2, -10.0, 122.4, 61.2, 10.0]
-        max_per_img: 500
-        max_pool_nms: false
-        min_radius: [4, 12, 10, 1, 0.85, 0.175]
-        score_threshold: 0.1
+        post_center_limit_range: [0.0, -61.2, -10.0, 122.4, 61.2, 10.0] #后处理时，只保留中心点落在这个 XYZ 范围内的框。
+        max_per_img: 500 #每张图最终最多 500 个框。
+        max_pool_nms: false #不用 max-pool NMS，而用 旋转 NMS
+        min_radius: [4, 12, 10, 1, 0.85, 0.175] #对应 6 类（或 2 类）的 NMS 最小半径（像素）
+        score_threshold: 0.1 #得分 < 0.1 的框直接丢弃
         out_size_factor: 4
         voxel_size: ${voxel_size[:2]}
-        nms_type: rotate
-        pre_max_size: 1000
+        nms_type: rotate #非极大值抑制(Non-Maximum Suppression)的类型 选择NMS
+        pre_max_size: 1000 # NMS 前/后保留框数上限
         post_max_size: 83
-        nms_thr: 0.2
+        nms_thr: 0.2 #NMS IoU 阈值 0.2。
       ## 6 heads
       # tasks:
       #   - ["car"]
@@ -34,18 +34,18 @@ model:
       #   - ["motorcycle", "bicycle"]
       #   - ["pedestrian", "traffic_cone"]
       ## Use 2heads for better perf.
-      tasks:
-        - ["car", "truck", "construction_vehicle", "bus", "trailer"]
-        - ["barrier","motorcycle", "bicycle","pedestrian", "traffic_cone"]
-      common_heads:
+      tasks: #多任务
+        - ["car", "truck", "construction_vehicle", "bus", "trailer"] #第一组 5 类大车
+        - ["barrier","motorcycle", "bicycle","pedestrian", "traffic_cone"] #第二组 
+      common_heads:  #共享头输出：reg(2), height(1), dim(3), rot(2), vel(2) 共 9 维。？？
         reg: [2, 2]
         height: [1, 2]
         dim: [3, 2]
         rot: [2, 2]
         vel: [2, 2]
-      share_conv_channel: 64
+      share_conv_channel: 64 #共享卷积层通道数 64。
       bbox_coder:
-        type: CenterPointBBoxCoder
+        type: CenterPointBBoxCoder #把 9 维输出解码成 3D 框的编码器
         pc_range: ${point_cloud_range}
         post_center_range: [0.0, -61.2, -10.0, 122.4, 61.2, 10.0]
         max_num: 500
@@ -53,15 +53,15 @@ model:
         out_size_factor: 4
         voxel_size: ${voxel_size[:2]}
         code_size: 9
-      separate_head:
+      separate_head: #每个任务用 独立头，init_bias=-2.19 给 focal loss 背景类初始偏置。
         type: SeparateHead
         init_bias: -2.19
         final_kernel: 3
-      loss_cls:
+      loss_cls: #高斯 Focal Loss 解决类别不平衡
         type: GaussianFocalLoss
         reduction: mean
-      loss_bbox:
+      loss_bbox: #回归框用 L1，权重 0.25
         type: L1Loss
         reduction: mean
         loss_weight: 0.25
-      norm_bbox: true
+      norm_bbox: true #坐标先归一化到 [-1,1] 再算损失

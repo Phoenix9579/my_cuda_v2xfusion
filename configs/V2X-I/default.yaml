@@ -5,11 +5,11 @@ dataset_kitti_root: /mnt/BEVHeight-main/data/dair-v2x-i-kitti/training/label_2
 #/dset/V2X/v2x/dair-v2x-i-kitti/training/label_2
 result_root: outputs
 
-point_cloud_range: [0, -51.2, -5, 102.4, 51.2, 3]
-voxel_size: [0.2, 0.2, 8]
-image_size: [864, 1536]
+point_cloud_range: [0, -51.2, -5, 102.4, 51.2, 3] #点云在三维空间中的裁剪范围（x_min, y_min, z_min, x_max, y_max, z_max）
+voxel_size: [0.2, 0.2, 8] #体素（Voxel）的尺寸（x, y, z）  BEV 特征图大小是 x,y:512 × 512  (102.4 - 0) / 0.2 = 512 z:不划分体素，一次性处理
+image_size: [864, 1536] # 输入图像的目标尺寸，所有图像会被缩放为 864x1536 像素
 
-object_classes:
+object_classes:  #模型需要检测的物体类别 10类
   - car
   - truck
   - construction_vehicle
@@ -22,26 +22,26 @@ object_classes:
   - traffic_cone
 
 data:
-  samples_per_gpu: 4
-  workers_per_gpu: 4
+  samples_per_gpu: 4 #每个 GPU 一次处理 4 个样本（batch size per GPU）
+  workers_per_gpu: 4 #每个 GPU 分配 4 个子进程（DataLoader worker）来加载数据
   train:
     type: V2XDataset
     dataset:
       dataset_root: ${dataset_root}
       dataset_kitti_root: ${dataset_kitti_root}
       result_root: ${result_root}
-      ann_file: ${dataset_root + "/dair_12hz_infos_train.pkl"}
-      final_dim:  ${image_size}
+      ann_file: ${dataset_root + "/dair_12hz_infos_train.pkl"} #标注文件路径
+      final_dim:  ${image_size} #图像目标尺寸，图像被缩放到 final_dim
       object_classes: ${object_classes}
       H: 1080
-      W: 1920
+      W: 1920 #原始图像尺寸，分辨率
       is_train: true
-      use_cbgs: false
-      num_sweeps: 1
-      img_mean: [123.675, 116.28, 103.53]
-      img_std: [58.395, 57.12, 57.375]
-      to_rgb: true
-      return_depth: false
+      use_cbgs: false #是否使用 CBGS 采样 Class-Balanced Group Sampling，解决类别不平衡
+      num_sweeps: 1 #只用当前帧点云
+      img_mean: [123.675, 116.28, 103.53] #图像标准化均值 ImageNet数据集的均值
+      img_std: [58.395, 57.12, 57.375] #图像标准化标准差 ImageNet数据集的标准差
+      to_rgb: true #是否 BGR→RGB  相机图像通常是 BGR，需转为 RGB
+      return_depth: false #是否返回深度图 用于自监督或深度估计任务，这里关闭
   val:
     type: ${dataset_type}
     dataset:
@@ -53,7 +53,7 @@ data:
       object_classes: ${object_classes}
       H: 1080
       W: 1920
-      is_train: false
+      is_train: false #非训练模式，关闭数据增强
       use_cbgs: false
       num_sweeps: 1
       img_mean: [123.675, 116.28, 103.53]
@@ -80,5 +80,5 @@ data:
       to_rgb: true
       return_depth: false
 
-evaluation:
-  interval: 100
+evaluation: 
+  interval: 100 #每100个epoch评估一次模型

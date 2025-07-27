@@ -1,35 +1,35 @@
-model:
+model: #在 BEV 上用轻量 ResNet + FPN 提取 256 通道特征，用 AdamW + 余弦退火训练，梯度范数>35就裁剪，以防炸梯
   decoder:
     backbone:
-      type: GeneralizedResNet
-      in_channels: 336
-      blocks:
+      type: GeneralizedResNet #通用 ResNet 架构，用于图像特征提取
+      in_channels: 336 #输入特征图的通道数
+      blocks: #每项 [num_blocks, out_channels, stride]，每个ResNet block 参数列表； 3 个 stage
         - [2, 160, 2]
         - [2, 320, 2]
         - [2, 640, 1]
     neck:
-      type: LSSFPN
-      in_indices: [-1, 0]
-      in_channels: [640, 160]
-      out_channels: 256
-      scale_factor: 2
+      type: LSSFPN  #把最深 640 与最浅 160 融合，再上采样 2 倍，最终输出 256 通道。
+      in_indices: [-1, 0] #输入特征图的索引 -1 表示最后一个输出层，0 表示第一个输入层
+      in_channels: [640, 160] #两个输入特征图的通道数
+      out_channels: 256 #输出的特征图通道数
+      scale_factor: 2 #特征图上采样倍数
   heads:
-    object:
+    object: #接收来自 neck 的 256 通道特征
       in_channels: 256
 
 optimizer:
   type: AdamW
-  lr: 2.0e-4
-  weight_decay: 0.01
+  lr: 2.0e-4  #初始学习率 0.0002
+  weight_decay: 0.01 #权重衰减（L2 正则化） L2 正则系数 0.01，防止过拟合
 
 optimizer_config:
-  grad_clip:
-    max_norm: 35
-    norm_type: 2
+  grad_clip: #梯度裁剪设置
+    max_norm: 35 #最大梯度范数 梯度超过这个值，就进行裁剪
+    norm_type: 2 #L2 范数判断
 
 lr_config:
-  policy: CosineAnnealing
-  warmup: linear
-  warmup_iters: 500
-  warmup_ratio: 0.33333333
-  min_lr_ratio: 1.0e-3
+  policy: CosineAnnealing #余弦退火策略，学习率先升后降；从 0.0002 降到 1e-7
+  warmup: linear #预热方式，线性，学习率从一个很小的值线性增加到初始值；从 0.0002×1/3 升到 0.0002
+  warmup_iters: 500 #预热步数 前 500 次迭代进行学习率预热
+  warmup_ratio: 0.33333333 #初始学习率是目标学习率的 1/3
+  min_lr_ratio: 1.0e-3 #最低学习率是初始学习率的千分之一；余弦最低点 = 0.0002 × 0.001 = 2e-7
