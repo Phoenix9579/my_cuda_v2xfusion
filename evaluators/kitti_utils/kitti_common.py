@@ -645,9 +645,9 @@ def empty_result_anno():
     return annotations
 
 def get_label_annos(label_folder, image_ids=None, return_ids = False):
-    if image_ids is None:
+    if image_ids is None: #没指定ID，扫描所有TXT
         filepaths = pathlib.Path(label_folder).glob('*.txt')
-        prog = re.compile(r'^\d{6}.txt$')
+        prog = re.compile(r'^\d{6}.txt$') #只匹配形如 000123.txt 的文件名
         filepaths = filter(lambda f: prog.match(f.name), filepaths)
         image_ids = [int(p.stem) for p in filepaths]
         image_ids = sorted(image_ids)

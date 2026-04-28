@@ -27,7 +27,7 @@ from torch import nn
 
 from mmdet3d.ops import bev_pool
 
-import tensor
+#import tensor
 import numpy as np
 import os
 __all__ = ["BaseTransform", "BaseDepthTransform", "V2XTransform"]

@@ -43,9 +43,9 @@ from functools import partial
 from torch import nn
 import quantize as quantize
 import tinyq
+# PTQ（Post-Training Quantization，训练后量化）处理，目的是压缩模型大小、加速推理速度，同时保持检测精度
 
-
-def quantize_net(model):
+def quantize_net(model): #对模型的 LiDAR 编码器主干网络、摄像头编码器 和 解码器 进行量化
     print("🔥 start quantization 🔥 ")
     quantize.quantize_encoders_lidar_branch(model.encoders.lidar.backbone)    
     quantize.quantize_encoders_camera_branch(model.encoders.camera)
@@ -146,26 +146,36 @@ def parse_args():
 
 
 def main():
-    args = parse_args()
+    
+    import sys
+    import site
+    print("sys.path:")
+    for p in sys.path:
+        print(p)
+
+    print("\nUser site:", site.getusersitepackages())
+    print("User dir exists?", __import__('os').path.exists('/root/.local'))
+    
+    args = parse_args() #参数解析，根据命令行参数得到解析后的参数对象 
     #dist.init()
-    torch.backends.cudnn.benchmark = True
-    torch.cuda.set_device(dist.local_rank())
+    torch.backends.cudnn.benchmark = True #benchmark模式以优化性能
+    torch.cuda.set_device(dist.local_rank()) #根据分布式训练环境中的本地rank设置当前使用的GPU设备
     
     configs.load(args.config, recursive=True)
     cfg = Config(recursive_eval(configs), filename=args.config)
-    print(cfg)
+    print(cfg) #加载配置文件
 
-    if args.cfg_options is not None:
+    if args.cfg_options is not None: #如果有额外的配置选项，则将其合并到主配置中
         cfg.merge_from_dict(args.cfg_options)
     # set cudnn_benchmark
-    if cfg.get("cudnn_benchmark", False):
+    if cfg.get("cudnn_benchmark", False): #根据配置决定是否开启cuDNN的benchmark模式
         torch.backends.cudnn.benchmark = True
 
-    cfg.model.pretrained = None
+    cfg.model.pretrained = None  #清除模型预训练权重设置，防止使用预训练模型
     # in case the test dataset is concatenated
-    samples_per_gpu = 1
+    samples_per_gpu = 1 #设置每个GPU上的样本数，并调整数据加载器和数据管道的配置
     if isinstance(cfg.data.test, dict):
-        cfg.data.test.test_mode = True
+        cfg.data.test.test_mode = True #新添加的参数，用于控制测试数据集的测试模式.控制测试阶段的行为，无需修改原始YAML文件
         samples_per_gpu = cfg.data.test.pop("samples_per_gpu", 1)
         if samples_per_gpu > 1:
             # Replace 'ImageToTensor' to 'DefaultFormatBundle'
@@ -181,10 +191,10 @@ def main():
                 ds_cfg.pipeline = replace_ImageToTensor(ds_cfg.pipeline)
 
     # init distributed env first, since logger depends on the dist info.
-    distributed = 0
+    distributed = 0 #定义是否启用分布式训练环境。这里设为0表示不启用。
 
     # set random seeds
-    if args.seed is not None:
+    if args.seed is not None:  #如果设置了随机种子，则使用该种子初始化随机数生成器，确保实验可复现
         set_random_seed(args.seed, deterministic=args.deterministic)
 
     # build the dataloader
@@ -196,8 +206,8 @@ def main():
         dist=distributed,
         shuffle=False,
     )
-    data_loader_train.collate_fn = partial(collate_fn,is_return_depth=False)
-    
+    data_loader_train.collate_fn = partial(collate_fn,is_return_depth=False) #collate_fn定义如何将多个样本（sample）组合成一个批次
+    #  标准库 functools 中的函数，用于固定一个函数的部分参数，生成一个新的函数
     
     dataset = build_dataset(cfg.data.test)
     data_loader = build_dataloader(
@@ -207,30 +217,30 @@ def main():
         dist=distributed,
         shuffle=False,
     )
-    data_loader.collate_fn = partial(collate_fn,is_return_depth=False)
+    data_loader.collate_fn = partial(collate_fn,is_return_depth=False) #手动将抽取出的样本堆叠起来的函数
     # build the model and load checkpoint
-    cfg.model.train_cfg = None
-    model = build_model(cfg.model, test_cfg=cfg.get("test_cfg"))
+    cfg.model.train_cfg = None #清除train_cfg参数
+    model = build_model(cfg.model, test_cfg=cfg.get("test_cfg")) #创建模型实例
 
     fp16_cfg = cfg.get("fp16", None)
     if fp16_cfg is not None:
         wrap_fp16_model(model)
     checkpoint = load_checkpoint(model, args.checkpoint, strict= True, map_location="cpu")
     if args.fuse_conv_bn:
-        model = fuse_conv_bn(model)
+        model = fuse_conv_bn(model) #融合Conv与BN层
 
     if "CLASSES" in checkpoint.get("meta", {}):
         model.CLASSES = checkpoint["meta"]["CLASSES"]
-    else:
+    else: #优先从检查点提取类别标签（如object_classes配置的10类目标），否则从数据集获取，确保模型输出与标注数据一致
         model.CLASSES = dataset.classes
     
     model = model.cuda()
     if args.mode == 'sparsity':
-        tinyq.replace_sparsity_modules(model)
+        tinyq.replace_sparsity_modules(model) #稀疏性处理
         tinyq.slinker(model).recompute_mask
         tinyq.slinker(model).sparsify_weight
         model = tinyq.remove_sparsity_modules(model)
-    model = quantize_net(model)
+    #model = quantize_net(model) #模型量化 属于量化参数训练阶段，不是真正的完成量化。
     
     if not distributed:
         model = MMDataParallel(model, device_ids=[0])  
@@ -238,7 +248,7 @@ def main():
         quantize.set_quantizer_fast(model)
         quantize.calibrate_model(model, data_loader_train, 0, None, 10)
         quantize.print_quantizer_status(model)
-        outputs = single_gpu_test(model, data_loader)
+        outputs = single_gpu_test(model, data_loader) #已经得到了推理结果在outputs中
     else:
         model = MMDistributedDataParallel(
             model.cuda(),
@@ -247,17 +257,17 @@ def main():
         )
         outputs = multi_gpu_test(model, data_loader, args.tmpdir, args.gpu_collect)
     
-    torch.save(model, 'ptq.pth')
+    torch.save(model, 'ptq.pth') #保存经过量化的模型，并在主进程中评估模型的性能
     rank, _ = get_dist_info()
     if rank == 0:
         if args.out:
-            print(f"\nwriting results to {args.out}")
+            print(f"\nwriting results to {args.out}",f"——from:{os.path.basename(__file__)}")
             mmcv.dump(outputs, args.out)
         kwargs = {} if args.eval_options is None else args.eval_options
-        if args.format_only:
+        if args.format_only:  #只做格式转换（如转 KITTI、COCO）而不算指标。
             dataset.format_results(outputs, **kwargs)
         if 1:
-            eval_kwargs = cfg.get("evaluation", {}).copy()
+            eval_kwargs = cfg.get("evaluation", {}).copy() #真正的评估参数
             # hard-code way to remove EvalHook args
             for key in [
                 "interval",
@@ -265,11 +275,12 @@ def main():
                 "start",
                 "gpu_collect",
                 "save_best",
-                "rule",
+                "rule", #去掉训练阶段用的钩子函数
             ]:
                 eval_kwargs.pop(key, None)
             eval_kwargs.update(dict(metric=args.eval, **kwargs))
-            print(dataset.evaluate(outputs))
+            print(f"——from:{os.path.basename(__file__)}")
+            print(dataset.evaluate(outputs)) #计算指标并打印结果，传入推理结果开始评估
 
 if __name__ == "__main__":
     main()

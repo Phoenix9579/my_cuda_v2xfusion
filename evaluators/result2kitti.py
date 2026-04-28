@@ -81,17 +81,30 @@ def read_label_bboxes(label_path, Tr_cam2lidar):
     return boxes
 
 def kitti_evaluation(pred_label_path, gt_label_path, current_classes=["Car", "Pedestrian", "Cyclist"], metric_path="metric"):
-    pred_annos, image_ids = kitti.get_label_annos(pred_label_path, return_ids=True)
-    gt_annos = kitti.get_label_annos(gt_label_path, image_ids=image_ids)
-    print(len(pred_annos), len(gt_annos))
-    result, ret_dict = kitti_eval(gt_annos, pred_annos, current_classes=current_classes, metric="R40")
-    mAP_3d_moderate = ret_dict["KITTI/Car_3D_moderate_strict"]
-    os.makedirs(os.path.join(metric_path, "R40"), exist_ok=True)
-    with open(os.path.join(metric_path, "R40", 'epoch_result_{}.txt'.format(round(mAP_3d_moderate, 2))), "w") as f:
-        f.write(result)
-    print(result)
-    return mAP_3d_moderate, result
-
+    try:
+        pred_annos, image_ids = kitti.get_label_annos(pred_label_path, return_ids=True)
+        gt_annos = kitti.get_label_annos(gt_label_path, image_ids=image_ids)
+        print(f"pred_annos = {len(pred_annos)}, gt_annos = {len(gt_annos)}",f"——from:{os.path.basename(__file__)}")
+        result, ret_dict = kitti_eval(gt_annos, pred_annos, current_classes=current_classes, metric="R40")
+        # 检查ret_dict中是否有需要的键值
+        if "KITTI/Car_3D_moderate_strict" in ret_dict:
+            mAP_3d_moderate = ret_dict["KITTI/Car_3D_moderate_strict"]
+        else:
+            # 如果没有找到需要的键值，使用默认值
+            mAP_3d_moderate = 0.0
+            print("Warning: KITTI/Car_3D_moderate_strict not found in ret_dict")
+            print("Available keys:", list(ret_dict.keys()))
+        
+        os.makedirs(os.path.join(metric_path, "R40"), exist_ok=True)
+        with open(os.path.join(metric_path, "R40", 'epoch_result_{}.txt'.format(round(mAP_3d_moderate, 2))), "w") as f:
+            f.write(result)
+        print(result)
+        print("mAP_3d_moderate: {}".format(mAP_3d_moderate))
+        return mAP_3d_moderate, result
+    except Exception as e: # 捕获所有异常
+        print(f"Error in kitti_evaluation: {e}")  # 打印错误信息
+        return None  # 返回 None 
+    
 def write_kitti_in_txt(pred_lines, path_txt):
     wf = open(path_txt, "w")
     for line in pred_lines:

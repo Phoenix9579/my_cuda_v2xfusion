@@ -117,7 +117,7 @@ class RoadSideEvaluator():
         result_files, tmp_dir = self.format_results(results, img_metas,
                                                     result_names,
                                                     jsonfile_prefix)
-        print(result_files, tmp_dir)
+        print(f"result_files = {result_files},\n,tmp_dir = {tmp_dir}",f"——from:{os.path.basename(__file__)}")
         if 1:# 'dair' in self.data_root:
             pred_label_path = result2kitti(result_files["img_bbox"], out_dir, self.data_root, self.gt_label_path, demo=False)
         else:

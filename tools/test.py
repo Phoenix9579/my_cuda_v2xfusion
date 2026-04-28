@@ -16,6 +16,8 @@ from mmdet3d.datasets import build_dataloader, build_dataset
 from mmdet3d.models import build_model
 from mmdet.apis import multi_gpu_test, set_random_seed
 from mmdet.datasets import replace_ImageToTensor
+from mmdet3d.datasets.v2x_dataset import collate_fn
+from functools import partial
 from mmdet3d.utils import recursive_eval
 
 #不量化，普通推理入口
@@ -173,6 +175,9 @@ def main():
         workers_per_gpu=cfg.data.workers_per_gpu,
         dist=distributed,
         shuffle=False,
+    )
+    # Replace collate_fn for V2XDataset
+    data_loader.collate_fn = partial(collate_fn, is_return_depth=False
     )
 
     # build the model and load checkpoint
