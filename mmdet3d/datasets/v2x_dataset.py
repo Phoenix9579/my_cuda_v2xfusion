@@ -257,6 +257,7 @@ class V2XDataset(Dataset):
                                img_std=[58.395, 57.12, 57.375],
                                to_rgb=True),
                  return_depth=False,
+                 lidar_root=None,
                  sweep_idxes=list(),
                  key_idxes=list()):
         """Dataset used for bevdetection task.
@@ -280,11 +281,13 @@ class V2XDataset(Dataset):
         self.is_train = is_train
         self.ida_aug_conf = ida_aug_conf
         self.data_root = data_root
+        self.lidar_root = lidar_root  # optional override for LiDAR PCD path
         self.result_root = result_root
         if not os.path.exists(result_root):
             os.makedirs(result_root)
             
         self.classes = classes
+        self.CLASSES = classes
         self.use_cbgs = use_cbgs
         if self.use_cbgs:
             self.cat2id = {name: i for i, name in enumerate(self.classes)}
@@ -457,10 +460,19 @@ class V2XDataset(Dataset):
         pcd_type_to_numpy_type = dict((q, p) for (p, q) in numpy_pcd_type_mappings)
 
         meta = dict()
+        # Handle empty/corrupt PCD files
+        if os.path.getsize(file) == 0:
+            import warnings
+            warnings.warn(f"Empty PCD file, returning zero points: {file}")
+            return np.array([[0.001, 0.0, 0.0, 0.0]], dtype=np.float32), {}  # 1 dummy point avoids CUDA empty-kernel error
         with open(file, "rb") as f:
             while True:
-                line = str(f.readline().strip(), "utf-8")
-                if line.startswith('# .PCD v0.7'):
+                raw = f.readline()
+                if raw == b'':  # EOF guard: prevents infinite loop on corrupt/empty files
+                    break
+                line = str(raw.strip(), "utf-8")
+                # skip comment lines and blank lines
+                if not line or line.startswith('#'):
                     continue
                 
                 if line.startswith("VERSION"):
@@ -796,7 +808,16 @@ class V2XDataset(Dataset):
                             break
         image_data_list = self.get_image(cam_infos, cams)
         
-        lidar_data_list, _ = self.load_pcd(os.path.join(self.data_root,self.infos[idx]['lidar_infos']['LIDAR_TOP']['filename']))
+        _lidar_fname = self.infos[idx]['lidar_infos']['LIDAR_TOP']['filename']
+        if self.lidar_root is not None:
+            _lidar_path = os.path.join(self.lidar_root, os.path.basename(_lidar_fname))
+        else:
+            _lidar_path = os.path.join(self.data_root, _lidar_fname)
+        lidar_data_list, _ = self.load_pcd(_lidar_path)
+        # Normalize to 4-column (x,y,z,intensity): dynamic PCDs may only have xyz
+        if lidar_data_list.ndim == 2 and lidar_data_list.shape[1] < 4:
+            pad = np.zeros((lidar_data_list.shape[0], 4 - lidar_data_list.shape[1]), dtype=lidar_data_list.dtype)
+            lidar_data_list = np.concatenate([lidar_data_list, pad], axis=1)
         lidar2camera = self.load_lidar2camera_mat(self.infos[idx]['lidar_infos']['LIDAR_TOP']['filename'], self.data_root)
         
         ret_list = list()
@@ -905,7 +926,7 @@ class V2XDataset(Dataset):
         results_cal = []
         all_pred_results = list()
         all_img_metas = list()
-        
+        #注释到这里了
         for i in range(len(results)):
             det_info = []
             det_info.append(results[i]['boxes_3d'].tensor.detach().cpu().numpy())

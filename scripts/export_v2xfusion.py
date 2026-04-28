@@ -234,7 +234,43 @@ def main():
 
     # build the model and load checkpoint
     cfg.model.train_cfg = None
-    model  = torch.load(args.checkpoint).module
+    #model  = torch.load(args.checkpoint).module
+
+    # 1. 先构建空模型结构 (使用 MMDet3D 的标准接口)
+    model = build_model(cfg.model)
+    
+    # 2. 加载检查点文件
+    print(f"Loading checkpoint from {args.checkpoint}...")
+    checkpoint = torch.load(args.checkpoint, map_location='cpu')
+    
+    # 3. 提取 state_dict (兼容多种保存格式)
+    if isinstance(checkpoint, dict):
+        if 'state_dict' in checkpoint:
+            state_dict = checkpoint['state_dict']
+        elif 'model' in checkpoint:
+            state_dict = checkpoint['model']
+        else:
+            # 如果字典里没有特定键，假设整个字典就是 state_dict
+            state_dict = checkpoint
+        print("Checkpoint format detected: dict")
+    elif hasattr(checkpoint, 'module'):
+        # 极少数情况：加载回来直接是 DataParallel 模型对象
+        state_dict = checkpoint.module.state_dict()
+        print("Checkpoint format detected: DataParallel object")
+    else:
+        state_dict = checkpoint
+        print("Checkpoint format detected: raw state_dict")
+
+    # 4. 处理 key 名称 (去掉多卡训练留下的 'module.' 前缀)
+    new_state_dict = {}
+    for k, v in state_dict.items():
+        name = k[7:] if k.startswith('module.') else k
+        new_state_dict[name] = v
+    
+    # 5. 加载权重到模型中 (strict=False 防止因少量层不匹配报错)
+    model.load_state_dict(new_state_dict, strict=False)
+    print("Checkpoint loaded successfully!")
+
     if export_fp16:
         for name, item in model.named_modules():
             if isinstance(item, TensorQuantizer):
