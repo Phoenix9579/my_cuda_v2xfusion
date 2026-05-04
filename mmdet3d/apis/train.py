@@ -30,7 +30,7 @@ from mmcv.runner import (
     build_optimizer,
     build_runner,
 )
-from mmdet3d.runner import CustomEpochBasedRunner
+from mmdet3d.runner import CustomEpochBasedRunner, GradientExplosionHook, PlateauEarlyStopHook
 
 from mmdet3d.utils import get_root_logger
 from mmdet.core import DistEvalHook
@@ -150,6 +150,38 @@ def train_model(
         eval_cfg["by_epoch"] = cfg.runner["type"] != "IterBasedRunner"
         eval_hook = DistEvalHook
         runner.register_hook(eval_hook(val_dataloader, **eval_cfg))
+
+    # ── 注册梯度爆炸检测 Hook ──────────────────────────────────────────
+    grad_cfg = cfg.get("gradient_explosion_hook", {})
+    if grad_cfg.get("enabled", True):
+        max_grad_norm = grad_cfg.get("max_grad_norm", 200.0)
+        runner.register_hook(
+            GradientExplosionHook(
+                max_grad_norm=max_grad_norm,
+                fail_report_dir=cfg.run_dir,
+            )
+        )
+        logger.info(f"[train_model] GradientExplosionHook registered, max_grad_norm={max_grad_norm}")
+
+    # ── 注册平台期早停 Hook ──────────────────────────────────────────────
+    plateau_cfg = cfg.get("plateau_early_stop_hook", {})
+    if plateau_cfg.get("enabled", True) and validate:
+        eval_interval = cfg.get("evaluation", {}).get("interval", 10)
+        start_epoch   = cfg.get("evaluation", {}).get("start", 30)
+        runner.register_hook(
+            PlateauEarlyStopHook(
+                metric_key=plateau_cfg.get("metric_key", "mAP_3d_moderate"),
+                min_delta=plateau_cfg.get("min_delta", 0.005),
+                patience=plateau_cfg.get("patience", 2),
+                start_epoch=start_epoch,
+                eval_interval=eval_interval,
+            )
+        )
+        logger.info(
+            f"[train_model] PlateauEarlyStopHook registered, "
+            f"start_epoch={start_epoch}, interval={eval_interval}, "
+            f"min_delta={plateau_cfg.get('min_delta', 0.005)}, patience={plateau_cfg.get('patience', 2)}"
+        )
 
     if cfg.resume_from:
         runner.resume(cfg.resume_from)

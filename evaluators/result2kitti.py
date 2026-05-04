@@ -20,6 +20,7 @@
 # DEALINGS IN THE SOFTWARE.
 
 import os
+import sys
 import json
 import math
 
@@ -86,24 +87,56 @@ def kitti_evaluation(pred_label_path, gt_label_path, current_classes=["Car", "Pe
         gt_annos = kitti.get_label_annos(gt_label_path, image_ids=image_ids)
         print(f"pred_annos = {len(pred_annos)}, gt_annos = {len(gt_annos)}",f"——from:{os.path.basename(__file__)}")
         result, ret_dict = kitti_eval(gt_annos, pred_annos, current_classes=current_classes, metric="R40")
-        # 检查ret_dict中是否有需要的键值
-        if "KITTI/Car_3D_moderate_strict" in ret_dict:
-            mAP_3d_moderate = ret_dict["KITTI/Car_3D_moderate_strict"]
-        else:
-            # 如果没有找到需要的键值，使用默认值
+        sys.stdout.flush()
+        # 依次尝试多个候选key，确保能取到 Car 3D moderate mAP
+        candidate_keys = [
+            "KITTI/Car_3D_moderate_strict",
+            "KITTI/Car_3D_moderate_loose",
+            "KITTI/Overall_3D_moderate_strict",
+        ]
+        mAP_3d_moderate = None
+        for _key in candidate_keys:
+            if _key in ret_dict:
+                mAP_3d_moderate = float(ret_dict[_key])
+                break
+        if mAP_3d_moderate is None:
             mAP_3d_moderate = 0.0
-            print("Warning: KITTI/Car_3D_moderate_strict not found in ret_dict")
-            print("Available keys:", list(ret_dict.keys()))
+            print("Warning: none of candidate keys found in ret_dict. Available:", list(ret_dict.keys()))
+            sys.stdout.flush()
         
-        os.makedirs(os.path.join(metric_path, "R40"), exist_ok=True)
-        with open(os.path.join(metric_path, "R40", 'epoch_result_{}.txt'.format(round(mAP_3d_moderate, 2))), "w") as f:
-            f.write(result)
+        # 写 metric txt 文件（可选，失败不影响主流程）
+        try:
+            os.makedirs(os.path.join(metric_path, "R40"), exist_ok=True)
+            with open(os.path.join(metric_path, "R40", 'epoch_result_{}.txt'.format(round(mAP_3d_moderate, 2))), "w") as f:
+                f.write(result)
+        except Exception as write_e:
+            print(f"Warning: could not write metric txt: {write_e}")
+            sys.stdout.flush()
+
+        # 写 last_eval_result.json 供 PlateauEarlyStopHook fallback 读取
+        # out_dir = metric_path 去掉 /tmp/metric 后缀
+        _out_dir = metric_path
+        for _suffix in ["/tmp/metric", "/tmp", ""]:
+            if _out_dir.endswith(_suffix) and _suffix:
+                _out_dir = _out_dir[:-len(_suffix)]
+                break
+        try:
+            _last_json = os.path.join(_out_dir, 'last_eval_result.json')
+            with open(_last_json, 'w') as _f:
+                json.dump({'mAP_3d_moderate': mAP_3d_moderate, 'result': result}, _f)
+        except Exception as _je:
+            print(f"Warning: could not write last_eval_result.json: {_je}")
+            sys.stdout.flush()
+
         print(result)
+        sys.stdout.flush()
         print("mAP_3d_moderate: {}".format(mAP_3d_moderate))
+        sys.stdout.flush()
         return mAP_3d_moderate, result
     except Exception as e: # 捕获所有异常
         print(f"Error in kitti_evaluation: {e}")  # 打印错误信息
-        return None  # 返回 None 
+        import traceback; traceback.print_exc()
+        return 0.0, ""  # 返回默认tuple，避免调用方解包None崩溃
     
 def write_kitti_in_txt(pred_lines, path_txt):
     wf = open(path_txt, "w")
