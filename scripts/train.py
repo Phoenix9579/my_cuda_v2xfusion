@@ -71,7 +71,10 @@ def main():
     logger = get_root_logger(log_file=log_file)
 
     # log some basic info
-    logger.info(f"Config:\n{cfg.pretty_text}") #把复杂的配置对象（通常为 mmcv.Config）转成缩进对齐、易读的多行字符串
+    try:
+        logger.info(f"Config:\n{cfg.pretty_text}")
+    except Exception:
+        logger.info(f"Config: (pretty_text failed, see configs.yaml)") #把复杂的配置对象（通常为 mmcv.Config）转成缩进对齐、易读的多行字符串
     # 把这段文本写到 终端 + 日志文件，方便以后查看
 
     # set random seeds

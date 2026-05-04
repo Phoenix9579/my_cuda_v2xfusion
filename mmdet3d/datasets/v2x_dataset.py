@@ -913,10 +913,28 @@ class V2XDataset(Dataset):
             det_info.append(results[i]['labels_3d'].detach().cpu().numpy())
             all_img_metas.append(results[i]['metas'])
             all_pred_results.append(det_info)
-        mAP_3d_moderate, result= self.evaluator.evaluate(all_pred_results, all_img_metas, out_dir= self.result_root)
+        _eval_result = self.evaluator.evaluate(all_pred_results, all_img_metas, out_dir= self.result_root)
+        if _eval_result is None:
+            mAP_3d_moderate, result = 0.0, ""
+        else:
+            mAP_3d_moderate, result = _eval_result
         if logger is not None:
             logger.info(f"result:\n{result}")
-        return {'eval': 'finish'}
+        if mAP_3d_moderate is None:
+            mAP_3d_moderate = 0.0
+        # 将 mAP 写到 result_root/last_eval_result.json，供 PlateauEarlyStopHook 读取
+        import json as _json
+        os.makedirs(self.result_root, exist_ok=True)
+        _last_json = os.path.join(self.result_root, 'last_eval_result.json')
+        try:
+            with open(_last_json, 'w') as _f:
+                _json.dump({'mAP_3d_moderate': float(mAP_3d_moderate), 'result': result}, _f)
+            if logger is not None:
+                logger.info(f'[V2XDataset] eval result saved to {_last_json}')
+        except Exception as _e:
+            if logger is not None:
+                logger.warning(f'[V2XDataset] failed to save eval result JSON: {_e}')
+        return {'mAP_3d_moderate': float(mAP_3d_moderate)}
 
 def collate_fn(data, is_return_depth=False):
     imgs_batch = list()
