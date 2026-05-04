@@ -76,6 +76,22 @@ class BEVFusion(Base3DFusionModel):
             )
             self.voxelize_reduce = encoders["lidar"].get("voxelize_reduce", True)
 
+        # 双流架构：第二路背景LiDAR编码器（如配置了）
+        if encoders.get("lidar_bg") is not None:
+            if encoders["lidar_bg"]["voxelize"].get("max_num_points", -1) > 0:
+                bg_voxelize_module = Voxelization(**encoders["lidar_bg"]["voxelize"])
+            else:
+                bg_voxelize_module = DynamicScatter(**encoders["lidar_bg"]["voxelize"])
+            self.encoders["lidar_bg"] = nn.ModuleDict(
+                {
+                    "voxelize": bg_voxelize_module,
+                    "backbone": build_backbone(encoders["lidar_bg"]["backbone"]),
+                }
+            )
+            self.voxelize_reduce_bg = encoders["lidar_bg"].get("voxelize_reduce", True)
+        else:
+            self.voxelize_reduce_bg = None
+
         if fuser is not None:
             self.fuser = build_fuser(fuser)
         else:
@@ -158,6 +174,13 @@ class BEVFusion(Base3DFusionModel):
         x = self.encoders["lidar"]["backbone"](feats, coords, batch_size, sizes=sizes)
         return x
 
+    def extract_lidar_bg_features(self, x) -> torch.Tensor:
+        """双流架构：提取背景点云的BEV特征"""
+        feats, coords, sizes = self._voxelize_bg(x)
+        batch_size = coords[-1, 0] + 1
+        x = self.encoders["lidar_bg"]["backbone"](feats, coords, batch_size, sizes=sizes)
+        return x
+
     @torch.no_grad()
     @force_fp32()
     def voxelize(self, points):
@@ -186,6 +209,32 @@ class BEVFusion(Base3DFusionModel):
                 )
                 feats = feats.contiguous()
 
+        return feats, coords, sizes
+
+    @torch.no_grad()
+    @force_fp32()
+    def _voxelize_bg(self, points):
+        """双流架构：背景点云体素化"""
+        feats, coords, sizes = [], [], []
+        for k, res in enumerate(points):
+            ret = self.encoders["lidar_bg"]["voxelize"](res)
+            if len(ret) == 3:
+                f, c, n = ret
+            else:
+                assert len(ret) == 2
+                f, c = ret
+                n = None
+            feats.append(f)
+            coords.append(F.pad(c, (1, 0), mode="constant", value=k))
+            if n is not None:
+                sizes.append(n)
+        feats = torch.cat(feats, dim=0)
+        coords = torch.cat(coords, dim=0)
+        if len(sizes) > 0:
+            sizes = torch.cat(sizes, dim=0)
+            if self.voxelize_reduce_bg:
+                feats = feats.sum(dim=1, keepdim=False) / sizes.type_as(feats).view(-1, 1)
+                feats = feats.contiguous()
         return feats, coords, sizes
 
     @auto_fp16(apply_to=("img", "points"))
@@ -249,6 +298,8 @@ class BEVFusion(Base3DFusionModel):
         **kwargs,
     ):
         features = []
+        points_bg = kwargs.get("points_bg", None)  # 双流架构: 背景点云
+
         for sensor in (
             self.encoders if self.training else list(self.encoders.keys())[::-1]
         ):
@@ -269,6 +320,11 @@ class BEVFusion(Base3DFusionModel):
                 )
             elif sensor == "lidar":
                 feature = self.extract_lidar_features(points)
+            elif sensor == "lidar_bg":
+                if points_bg is not None:
+                    feature = self.extract_lidar_bg_features(points_bg)
+                else:
+                    continue  # 无背景点云时跳过
             else:
                 raise ValueError(f"unsupported sensor: {sensor}")
             features.append(feature)

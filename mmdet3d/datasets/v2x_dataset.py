@@ -258,7 +258,9 @@ class V2XDataset(Dataset):
                                to_rgb=True),
                  return_depth=False,
                  sweep_idxes=list(),
-                 key_idxes=list()):
+                 key_idxes=list(),
+                 lidar_root=None,
+                 bg_lidar_root=None):
         """Dataset used for bevdetection task.
         Args:
             ida_aug_conf (dict): Config for ida augmentation.
@@ -796,8 +798,15 @@ class V2XDataset(Dataset):
                             break
         image_data_list = self.get_image(cam_infos, cams)
         
-        lidar_data_list, _ = self.load_pcd(os.path.join(self.data_root,self.infos[idx]['lidar_infos']['LIDAR_TOP']['filename']))
-        lidar2camera = self.load_lidar2camera_mat(self.infos[idx]['lidar_infos']['LIDAR_TOP']['filename'], self.data_root)
+        _lidar_fname = self.infos[idx]['lidar_infos']['LIDAR_TOP']['filename']
+        lidar_data_list, _ = self.load_pcd(os.path.join(self.data_root, _lidar_fname))
+        # 加载背景点云（如配置了bg_lidar_root）
+        if self.bg_lidar_root is not None:
+            _bg_path = os.path.join(self.bg_lidar_root, os.path.basename(_lidar_fname))
+            bg_lidar_data_list, _ = self.load_pcd(_bg_path)
+        else:
+            bg_lidar_data_list = lidar_data_list  # fallback: use same as fg
+        lidar2camera = self.load_lidar2camera_mat(_lidar_fname, self.data_root)
         
         ret_list = list()
         (
@@ -843,7 +852,8 @@ class V2XDataset(Dataset):
             gt_boxes,
             gt_labels,
             lidar_data_list,
-            lidar2camera
+            lidar2camera,
+            bg_lidar_data_list,
         ]
         if self.return_depth:
             ret_list.append(image_data_list[9])
@@ -1000,6 +1010,8 @@ def collate_fn(data, is_return_depth=False):
     dict_info = dict()
     dict_info['img'] = torch.cat(imgs_batch, dim=0)
     dict_info['points'] = lidar_data_list_batch
+    if len(bg_lidar_data_list_batch) > 0:
+        dict_info['points_bg'] = bg_lidar_data_list_batch
     dict_info['gt_bboxes_3d'] = gt_boxes_batch
     dict_info['gt_labels_3d'] = gt_labels_batch
     dict_info['gt_masks_bev'] = None
