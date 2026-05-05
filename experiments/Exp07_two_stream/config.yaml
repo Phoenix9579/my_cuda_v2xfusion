@@ -1,3 +1,13 @@
+# ============================================================
+# Exp07b — 双流架构完整方法：Foreground + Background + GatedFuser
+# 
+# 目的: 本文提出的方法。门控融合学习逐位置信任度，
+#       gate→1 信任LiDAR(fg+bg), gate→0 退化到Exp06(仅前景+cam)
+# 
+# Fuser: GatedFuser (门控 + 残差退化到Exp06)
+# LiDAR: 前景(velodyne_gt) + 背景(velodyne_bg) 双路PointPillars
+# ============================================================
+
 augment3d:
   rotate:
   - -0.3925
@@ -11,7 +21,7 @@ checkpoint_config:
   max_keep_ckpts: 10
 cudnn_benchmark: false
 data:
-  samples_per_gpu: 4
+  samples_per_gpu: 8
   test:
     dataset:
       H: 1080
@@ -150,7 +160,7 @@ lr_config:
   cyclic_times: 1
   policy: cyclic
   step_ratio_up: 0.4
-  target_ratio: 5.0
+  target_ratio: 4.0
 max_epochs: 100
 model:
   decoder:
@@ -488,6 +498,8 @@ optimizer:
         lr_mult: 0.1
       relative_position_bias_table:
         decay_mult: 0
+      fuser:
+        lr_mult: 0.1      # GatedFuser 随机初始化，降低 LR 防梯度爆炸
   type: AdamW
   weight_decay: 0.01
 optimizer_config:
@@ -502,8 +514,8 @@ point_cloud_range:
 - 51.2
 - 3
 result_root: /mnt/bevfusion/experiments/Exp07_two_stream/outputs
-resume_from: null
-run_dir: /mnt/bevfusion/experiments/Exp05_dynamic_pcd_retrain
+resume_from: /mnt/bevfusion/experiments/Exp07_two_stream/epoch_30.pth
+run_dir: /mnt/bevfusion/experiments/Exp07_two_stream
 runner:
   max_epochs: 100
   type: CustomEpochBasedRunner
@@ -514,7 +526,8 @@ voxel_size:
 - 8
 gradient_explosion_hook:
   enabled: true
-  max_grad_norm: 200.0
+  max_grad_norm: 50.0
+  nan_tolerance: 30
 plateau_early_stop_hook:
   enabled: true
   metric_key: mAP_3d_moderate

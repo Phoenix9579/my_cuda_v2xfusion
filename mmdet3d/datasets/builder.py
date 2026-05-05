@@ -74,6 +74,8 @@ def build_dataset(cfg, default_args=None):
             sweep_idxes=list(),
             key_idxes=list(),
             return_depth=False,
+            lidar_root=cfg["dataset"].get("lidar_root", None),
+            bg_lidar_root=cfg["dataset"].get("bg_lidar_root", None),
         )
         return dataset
     elif isinstance(cfg, (list, tuple)):
