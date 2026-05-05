@@ -295,6 +295,8 @@ class V2XDataset(Dataset):
         self.img_mean = np.array(img_conf['img_mean'], np.float32)
         self.img_std = np.array(img_conf['img_std'], np.float32)
         self.to_rgb = img_conf['to_rgb']
+        self.lidar_root = lidar_root  # optional override for LiDAR foreground PCD path
+        self.bg_lidar_root = bg_lidar_root  # optional override for LiDAR background PCD path
         self.return_depth = return_depth
         assert sum([sweep_idx >= 0 for sweep_idx in sweep_idxes]) \
             == len(sweep_idxes), 'All `sweep_idxes` must greater \
@@ -923,28 +925,60 @@ class V2XDataset(Dataset):
             det_info.append(results[i]['labels_3d'].detach().cpu().numpy())
             all_img_metas.append(results[i]['metas'])
             all_pred_results.append(det_info)
-        _eval_result = self.evaluator.evaluate(all_pred_results, all_img_metas, out_dir= self.result_root)
+        _eval_result = self.evaluator.evaluate(all_pred_results, all_img_metas, out_dir=self.result_root)
         if _eval_result is None:
-            mAP_3d_moderate, result = 0.0, ""
+            _mAP_3d_moderate, _result_str = 0.0, ""
         else:
-            mAP_3d_moderate, result = _eval_result
+            _mAP_3d_moderate, _result_str = _eval_result
+        if _mAP_3d_moderate is None:
+            _mAP_3d_moderate = 0.0
         if logger is not None:
-            logger.info(f"result:\n{result}")
-        if mAP_3d_moderate is None:
-            mAP_3d_moderate = 0.0
-        # 将 mAP 写到 result_root/last_eval_result.json，供 PlateauEarlyStopHook 读取
-        import json as _json
-        os.makedirs(self.result_root, exist_ok=True)
+            logger.info(f"result:\n{_result_str}")
+
+        # ================================================================
+        # 保存评估结果 — 两份：
+        #   1) result_root/last_eval_result.json  (供 PlateauEarlyStopHook)
+        #   2) result_root/eval_results/epoch_<N>/ (供历史追溯)
+        # ================================================================
+        import json as _json, shutil as _shutil
+
+        # ── 确定当前的 epoch 号 ──
+        _epoch_str = "unknown"
+        if hasattr(self, 'epoch') and self.epoch is not None:
+            _epoch_str = str(self.epoch)
+        _eval_epoch_dir = os.path.join(self.result_root, 'eval_results', f'epoch_{_epoch_str}')
+        os.makedirs(_eval_epoch_dir, exist_ok=True)
+
+        # 1) 写 last_eval_result.json（供早停 Hook 读取）
         _last_json = os.path.join(self.result_root, 'last_eval_result.json')
         try:
             with open(_last_json, 'w') as _f:
-                _json.dump({'mAP_3d_moderate': float(mAP_3d_moderate), 'result': result}, _f)
+                _json.dump({'mAP_3d_moderate': float(_mAP_3d_moderate), 'result': _result_str}, _f)
             if logger is not None:
                 logger.info(f'[V2XDataset] eval result saved to {_last_json}')
         except Exception as _e:
             if logger is not None:
-                logger.warning(f'[V2XDataset] failed to save eval result JSON: {_e}')
-        return {'mAP_3d_moderate': float(mAP_3d_moderate)}
+                logger.warning(f'[V2XDataset] failed to save last_eval_result.json: {_e}')
+
+        # 2) 保存到 eval_results/epoch_<N>/ 子目录
+        #    包含：results_nusc.json（推理结果）、last_eval_result.json（AP汇总）
+        try:
+            # 2a) 复制 results_nusc.json（由 evaluator.format_results 生成）
+            _results_nusc = os.path.join(self.result_root, 'results_nusc.json')
+            if os.path.exists(_results_nusc):
+                _dst = os.path.join(_eval_epoch_dir, 'results_nusc.json')
+                _shutil.copy2(_results_nusc, _dst)
+            # 2b) 复制 last_eval_result.json
+            _last_json_dst = os.path.join(_eval_epoch_dir, 'last_eval_result.json')
+            if os.path.exists(_last_json):
+                _shutil.copy2(_last_json, _last_json_dst)
+            if logger is not None:
+                logger.info(f'[V2XDataset] eval results archived to {_eval_epoch_dir}')
+        except Exception as _e:
+            if logger is not None:
+                logger.warning(f'[V2XDataset] failed to archive eval results: {_e}')
+
+        return {'mAP_3d_moderate': float(_mAP_3d_moderate)}
 
 def collate_fn(data, is_return_depth=False):
     imgs_batch = list()
@@ -962,6 +996,7 @@ def collate_fn(data, is_return_depth=False):
     depth_labels_batch = list()
     denorms_batch = list()
     lidar_data_list_batch = list()
+    bg_lidar_data_list_batch = list()
     lidar2camera_batch = list()
     lidar2image_batch = list()
     for iter_data in data:
@@ -982,6 +1017,7 @@ def collate_fn(data, is_return_depth=False):
             lidar_data_list,
             lidar2camera   
         ) = iter_data[:15]
+        bg_lidar_data_list = iter_data[15] if len(iter_data) > 15 else lidar_data_list
         
         if is_return_depth:
             gt_depth = iter_data[12]
@@ -1002,6 +1038,7 @@ def collate_fn(data, is_return_depth=False):
         gt_boxes_batch.append(gt_boxes)
         gt_labels_batch.append(gt_labels)
         lidar_data_list_batch.append(torch.tensor(lidar_data_list, dtype=torch.float32))
+        bg_lidar_data_list_batch.append(torch.tensor(bg_lidar_data_list, dtype=torch.float32))
         lidar2camera_batch.append(torch.unsqueeze(torch.tensor(lidar2camera,dtype=torch.float32), dim =0))
         lidar2image = sweep_ida_mats[0,0] @ sweep_intrins[0,0] @ torch.tensor(lidar2camera,dtype=torch.float32)
         lidar2image_batch.append(torch.unsqueeze(lidar2image, dim =0))
