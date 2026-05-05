@@ -156,9 +156,6 @@ class PlateauEarlyStopHook(Hook):
         self.eval_interval = eval_interval
         self._history = []
         self._no_improve_count = 0
-        # VERY_LOW=90: 必须在 DistEvalHook(LOW=70) 和 TextLoggerHook(LOW=70) 之后运行
-        # 因为 log_buffer 会被 TextLoggerHook 清除，所以本 Hook 改用 JSON 文件读取
-        self.priority = Priority.VERY_LOW
 
     def _is_eval_epoch(self, runner) -> bool:
         epoch = runner.epoch

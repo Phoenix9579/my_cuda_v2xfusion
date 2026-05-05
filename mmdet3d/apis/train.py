@@ -155,9 +155,11 @@ def train_model(
     grad_cfg = cfg.get("gradient_explosion_hook", {})
     if grad_cfg.get("enabled", True):
         max_grad_norm = grad_cfg.get("max_grad_norm", 200.0)
+        nan_tolerance = grad_cfg.get("nan_tolerance", 20)
         runner.register_hook(
             GradientExplosionHook(
                 max_grad_norm=max_grad_norm,
+                nan_tolerance=nan_tolerance,
                 fail_report_dir=cfg.run_dir,
             )
         )
@@ -175,7 +177,8 @@ def train_model(
                 patience=plateau_cfg.get("patience", 2),
                 start_epoch=start_epoch,
                 eval_interval=eval_interval,
-            )
+            ),
+            priority='VERY_LOW',  # 在 DistEvalHook(LOW) 和 TextLoggerHook(LOW) 之后运行
         )
         logger.info(
             f"[train_model] PlateauEarlyStopHook registered, "

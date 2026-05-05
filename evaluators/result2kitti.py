@@ -89,17 +89,30 @@ def kitti_evaluation(pred_label_path, gt_label_path, current_classes=["Car", "Pe
         result, ret_dict = kitti_eval(gt_annos, pred_annos, current_classes=current_classes, metric="R40")
         sys.stdout.flush()
         # 依次尝试多个候选key，确保能取到 Car 3D moderate mAP
+        # 注意: eval.py 生成的 key 格式为 KITTI/Car_3D_moderate_strict
+        #       以及 KITTI/Overall_3D_moderate (不含 _strict 后缀)
         candidate_keys = [
             "KITTI/Car_3D_moderate_strict",
             "KITTI/Car_3D_moderate_loose",
             "KITTI/Overall_3D_moderate_strict",
+            "KITTI/Overall_3D_moderate",          # 总平均 moderate（无 strict/loose 后缀）
+            "KITTI/Overall_3D_moderate_loose",
         ]
         mAP_3d_moderate = None
         for _key in candidate_keys:
             if _key in ret_dict:
                 mAP_3d_moderate = float(ret_dict[_key])
-                break
-        if mAP_3d_moderate is None:
+                if mAP_3d_moderate > 0:
+                    break
+        if mAP_3d_moderate is None or mAP_3d_moderate <= 0:
+            # 尝试所有 moderate 相关的 key
+            for _rk, _rv in ret_dict.items():
+                if 'moderate' in _rk and '_3D_' in _rk:
+                    _val = float(_rv)
+                    if _val > 0:
+                        mAP_3d_moderate = _val
+                        break
+        if mAP_3d_moderate is None or mAP_3d_moderate <= 0:
             mAP_3d_moderate = 0.0
             print("Warning: none of candidate keys found in ret_dict. Available:", list(ret_dict.keys()))
             sys.stdout.flush()
