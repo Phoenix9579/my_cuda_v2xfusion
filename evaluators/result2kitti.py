@@ -117,6 +117,21 @@ def kitti_evaluation(pred_label_path, gt_label_path, current_classes=["Car", "Pe
             print("Warning: none of candidate keys found in ret_dict. Available:", list(ret_dict.keys()))
             sys.stdout.flush()
         
+        # ★ 兜底方案：从 result 字符串中解析 Overall 3D AP moderate
+        #    无论 key 是否匹配，result 字符串始终包含正确的 AP 数值
+        if mAP_3d_moderate is None or mAP_3d_moderate <= 0:
+            import re as _re
+            _match = _re.search(
+                r'Overall AP@.*?\n.*?\n.*?\n\s*3d\s+AP:\s*[\d.]+,\s*([\d.]+)',
+                result
+            )
+            if _match:
+                _parsed = float(_match.group(1))
+                if _parsed > 0:
+                    print(f"Fallback: parsed Overall 3D AP moderate={_parsed:.4f} from result string")
+                    sys.stdout.flush()
+                    mAP_3d_moderate = _parsed
+        
         # 写 metric txt 文件（可选，失败不影响主流程）
         try:
             os.makedirs(os.path.join(metric_path, "R40"), exist_ok=True)

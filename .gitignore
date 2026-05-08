@@ -162,6 +162,10 @@ events.*
 #detection result 
 *.json
 
+#中间产物
 *.txt
+*.log
+
 #配置文件
 *.yaml
+
